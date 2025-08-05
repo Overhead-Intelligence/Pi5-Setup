@@ -326,6 +326,8 @@ echo 'Y' | sudo tee /sys/class/net/wwan0/qmi/raw_ip
 echo "[*] Bringing up wwan0..."
 sudo ip link set wwan0 up
 
+sleep 5
+
 echo "[*] Setting modem to online mode..."
 sudo qmicli -d /dev/cdc-wdm0 --dms-set-operating-mode='online'
 
