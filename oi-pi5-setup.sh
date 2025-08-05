@@ -252,11 +252,11 @@ class RTSPServer:
             encoder = 'v4l2h264enc extra-controls="controls,video_bitrate=1000000"'
         else:
             print("[INFO] Using software encoder (x264enc)")
-            encoder = "x264enc tune=zerolatency bitrate=1000 speed-preset=ultrafast"
+            encoder = "x264enc tune=zerolatency bitrate=1500 speed-preset=ultrafast"
 
         pipeline = (
             f"( v4l2src device={device} ! image/jpeg,width={resolution[0]},height={resolution[1]},framerate={framerate}/1 ! "
-            f"jpegdec ! videoconvert ! {encoder} ! h264parse ! rtph264pay config-interval=1 name=pay0 pt=96 )"
+            f"jpegdec ! videoconvert ! videorate ! video/x-raw,framerate=10/1 ! {encoder} ! h264parse ! rtph264pay config-interval=1 name=pay0 pt=96 )"
         )
 
         factory.set_launch(pipeline)
@@ -357,6 +357,8 @@ After=network.target
 Type=simple
 ExecStartPre=/bin/sleep 30
 ExecStart=/bin/bash /home/droneman/LTE/wwan0-setup.sh
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
