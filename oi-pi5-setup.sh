@@ -67,7 +67,7 @@ cd "$USER_DIR"
 echo "Configuring /boot/firmware/config.txt..."
 
 cfg="/boot/firmware/config.txt"
-for overlay in uart0 uart2 uart3 uart5 disable-bt disable-wifi; do
+for overlay in uart0 uart2 uart3 uart5 disable-bt; do
   if ! grep -q "^dtoverlay=${overlay}$" "$cfg"; then
     echo "dtoverlay=${overlay}" | sudo tee -a "$cfg"
   else
