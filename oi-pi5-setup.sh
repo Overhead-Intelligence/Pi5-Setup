@@ -343,7 +343,7 @@ sudo iptables -t mangle -A PREROUTING -j TTL --ttl-set 65
 EOF
 
 echo "[*] Setting executable permission on wwan0-setup.sh..."
-chmod +x /home/droneman/LTE/wwan0-setup.sh
+sudo chmod +x /home/droneman/LTE/wwan0-setup.sh
 
 echo "[*] Creating systemd service: wwan0-setup.service..."
 cat << EOF | sudo tee /etc/systemd/system/wwan0-setup.service > /dev/null
