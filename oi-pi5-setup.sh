@@ -304,69 +304,47 @@ echo "[DONE] RTSP Streamer is live! Connect to rtsp://<raspberry_pi_ip>:30000/te
 
 cd "$USER_DIR"
 
-echo "[*] Stopping ModemManager and updating packages..."
-sudo systemctl stop ModemManager.service
+#LTE SETUP VIA USB/RNDIS
 
-echo "[*] Installing LTE modem tools..."
-sudo apt-get install -y libqmi-utils udhcpc minicom iptables
+echo "🔧 Installing minicom..."
+sudo apt-get install -y minicom
 
-echo "[*] Creating LTE directory..."
-mkdir -p /home/droneman/LTE
+echo "📄 Appending usb0 config to /etc/dhcp/dhclient.conf..."
+sudo tee -a /etc/dhcp/dhclient.conf > /dev/null <<EOF
 
-echo "[*] Creating wwan0-setup.sh..."
-cat << 'EOF' | sudo tee /home/droneman/LTE/wwan0-setup.sh > /dev/null
-set -e
-
-echo "[*] Bringing down wwan0 interface..."
-sudo ip link set wwan0 down
-
-echo "[*] Setting raw_ip mode..."
-echo 'Y' | sudo tee /sys/class/net/wwan0/qmi/raw_ip
-
-echo "[*] Bringing up wwan0..."
-sudo ip link set wwan0 up
-
-sleep 5
-
-echo "[*] Setting modem to online mode..."
-sudo qmicli -d /dev/cdc-wdm0 --dms-set-operating-mode='online'
-
-echo "[*] Starting network with APN..."
-sudo qmicli -p -d /dev/cdc-wdm0 \
-    --device-open-net='net-raw-ip|net-no-qos-header' \
-    --wds-start-network="apn='vzwinternet',ip-type=4" \
-    --client-no-release-cid
-
-echo "[*] Requesting IP address with udhcpc..."
-sudo udhcpc -q -f -i wwan0
-
-echo "[*] Applying TTL rule for Verizon..."
-sudo iptables -t mangle -A PREROUTING -j TTL --ttl-set 65
+interface "usb0" {
+  request subnet-mask, broadcast-address, time-offset, routers,
+          domain-name, domain-name-servers, host-name;
+}
 EOF
 
-echo "[*] Setting executable permission on wwan0-setup.sh..."
-sudo chmod +x /home/droneman/LTE/wwan0-setup.sh
-
-echo "[*] Creating systemd service: wwan0-setup.service..."
-cat << EOF | sudo tee /etc/systemd/system/wwan0-setup.service > /dev/null
+echo "📝 Creating /etc/systemd/system/dhclient-usb0-delayed.service..."
+sudo tee /etc/systemd/system/dhclient-usb0-delayed.service > /dev/null <<EOF
 [Unit]
-Description=Setup LTE connection on wwan0
+Description=Delayed DHCP refresh for usb0
 After=network.target
+Wants=network-online.target
 
 [Service]
-Type=simple
-ExecStartPre=/bin/sleep 30
-ExecStart=/bin/bash /home/droneman/LTE/wwan0-setup.sh
-Restart=on-failure
-RestartSec=5
+Type=oneshot
+ExecStart=/bin/bash -c "sleep 30 && /sbin/dhclient -r usb0 && /sbin/dhclient usb0"
+RemainAfterExit=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-echo "[*] Enabling wwan0-setup.service..."
+echo "🔄 Reloading systemd and enabling the service..."
 sudo systemctl daemon-reload
-sudo systemctl enable wwan0-setup.service
+sudo systemctl enable dhclient-usb0-delayed.service
+
+echo "📟 Sending AT command to /dev/ttyUSB2..."
+# Send command via echo and redirect (no need to open minicom interactively)
+echo -e "AT+QCFG=\"usbnet\",1\r" | sudo tee /dev/ttyUSB2 > /dev/null
+sleep 1
+echo -e "AT\r" | sudo tee /dev/ttyUSB2 > /dev/null  # Optional: verify response
+
+echo "✅ All steps completed!"
 
 echo "[*] Installing ZeroTier..."
 curl -s https://install.zerotier.com | sudo bash -
