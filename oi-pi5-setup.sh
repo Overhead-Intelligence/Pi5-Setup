@@ -252,7 +252,7 @@ class RTSPServer:
             encoder = 'v4l2h264enc extra-controls="controls,video_bitrate=1000000"'
         else:
             print("[INFO] Using software encoder (x264enc)")
-            encoder = "x264enc tune=zerolatency bitrate=1500 speed-preset=ultrafast"
+            encoder = "x264enc tune=zerolatency bitrate=1500 speed-preset=fast"
 
         pipeline = (
             f"( v4l2src device={device} ! image/jpeg,width={resolution[0]},height={resolution[1]},framerate={framerate}/1 ! "
