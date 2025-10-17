@@ -140,12 +140,128 @@ setup_mavlink_router() {
         sudo mkdir -p /etc/mavlink-router
         cat << 'EOF' | sudo tee /etc/mavlink-router/main.conf > /dev/null
 [General]
+# debug options are 'error, warning, info, debug'
 DebugLogLevel = debug
 TcpServerPort = 5760
 [UartEndpoint flightcontroller]
+# For CM4, change ttyS1 to ttyAMA2
 Device = /dev/ttyAMA0
 Baud = 115200
-# ... (rest of the config is identical to your original) ...
+[UdpEndpoint doodle]
+Mode = Server
+Address = 0.0.0.0
+Port = 10001
+RetryTimeout = 5
+[UdpEndpoint lte]
+Mode = Server
+Address = 0.0.0.0
+Port = 10002
+RetryTimeout = 5
+[UdpEndpoint MAVROS]
+Mode = Server
+Address = 0.0.0.0
+Port = 10003
+RetryTimeout = 5
+[UdpEndpoint MagCompForwarder]
+Mode = Normal
+Address = 0.0.0.0
+Port = 10004
+RetryTimeout = 5
+[UdpEndpoint PhotoGram]
+Mode = Normal
+Address = 0.0.0.0
+Port = 10005
+RetryTimeout = 5
+[UdpEndpoint MAVLinkReader]
+Mode = Normal
+Address = 0.0.0.0
+Port = 10006
+RetryTimeout = 5
+[UdpEndpoint Internal7]
+Mode = Normal
+Address = 0.0.0.0
+Port = 10007
+RetryTimeout = 5
+[UdpEndpoint Internal8]
+Mode = Normal
+Address = 0.0.0.0
+Port = 10008
+RetryTimeout = 5
+[UdpEndpoint Internal9]
+Mode = Normal
+Address = 0.0.0.0
+Port = 10009
+RetryTimeout = 5
+[UdpEndpoint Internal10]
+Mode = Normal
+Address = 0.0.0.0
+Port = 10010
+RetryTimeout = 5
+[UdpEndpoint External0]
+Mode = Server
+Address = 0.0.0.0
+Port = 11000
+RetryTimeout = 5
+[UdpEndpoint External1]
+Mode = Server
+Address = 0.0.0.0
+Port = 11001
+RetryTimeout = 5
+[UdpEndpoint External2]
+Mode = Server
+Address = 0.0.0.0
+Port = 11002
+RetryTimeout = 5
+[UdpEndpoint External3]
+Mode = Server
+Address = 0.0.0.0
+Port = 11003
+RetryTimeout = 5
+[UdpEndpoint External4]
+Mode = Server
+Address = 0.0.0.0
+Port = 11004
+RetryTimeout = 5
+[UdpEndpoint External5]
+Mode = Server
+Address = 0.0.0.0
+Port = 11005
+RetryTimeout = 5
+[UdpEndpoint External6]
+Mode = Server
+Address = 0.0.0.0
+Port = 11006
+RetryTimeout = 5
+[UdpEndpoint External7]
+Mode = Server
+Address = 0.0.0.0
+Port = 11007
+RetryTimeout = 5
+[UdpEndpoint External8]
+Mode = Server
+Address = 0.0.0.0
+Port = 11008
+RetryTimeout = 5
+[UdpEndpoint External9]
+Mode = Server
+Address = 0.0.0.0
+Port = 11009
+RetryTimeout = 5
+[UdpEndpoint External10]
+Mode = Server
+Address = 0.0.0.0
+Port = 11010
+RetryTimeout = 5
+[UdpEndpoint Support]
+Mode = Server
+Address = 0.0.0.0
+Port = 10020
+RetryTimeout = 5
+[UdpEndpoint Support1]
+Mode = Server
+Address = 0.0.0.0
+Port = 10021
+RetryTimeout = 5
 EOF
     else
         log_info "Mavlink-router config already exists. Skipping creation."
