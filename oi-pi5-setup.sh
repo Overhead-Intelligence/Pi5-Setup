@@ -28,6 +28,7 @@ main() {
     setup_rtsp_streamer
     setup_lte
     install_zerotier
+    install_tailscale
     finalize_setup
 
     log_success "✅ Setup complete!"
@@ -90,7 +91,9 @@ install_system_packages() {
         gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
         gstreamer1.0-rtsp
         minicom isc-dhcp-client
+        libimobiledevice-utils ipheth-utils usbmuxd
     )
+    sudo apt-get update
     sudo apt-get install -y "${apt_packages[@]}"
 }
 
@@ -344,6 +347,13 @@ EOF
 install_zerotier() {
     log_info "Installing ZeroTier..."
     curl -s https://install.zerotier.com | sudo bash
+}
+
+install_tailscale() {
+    log_info "Installing Tailscale VPN..."
+    curl -fsSL https://tailscale.com/install.sh | sh
+    log_info "Starting and enabling Tailscale service..."
+    sudo systemctl enable --now tailscaled
 }
 
 ## Finalize and Reboot
