@@ -57,9 +57,57 @@ configure_system() {
     log_info "Configuring system settings..."
     sudo timedatectl set-timezone UTC
     sudo apt-get update && sudo apt-get upgrade -y
-    log_info "Configuring /boot/firmware/config.txt..."
+
     local cfg_file="/boot/firmware/config.txt"
-    local overlays=("uart0" "uart2" "uart3" "uart5" "disable-bt" "disable-wifi")
+
+    log_info "Configuring /boot/firmware/config.txt..."
+
+    # --- Ask whether to disable WiFi ---
+    read -rp "DO YOU WANT TO DISABLE ONBOARD WIFI? (y/N): " disable_wifi_choice
+    disable_wifi_choice=${disable_wifi_choice,,}  # lowercase
+
+    if [[ "$disable_wifi_choice" == "y" ]]; then
+        log_info "Disabling onboard WiFi..."
+
+        # Add disable-wifi overlay
+        if ! grep -q "^dtoverlay=disable-wifi$" "$cfg_file"; then
+            echo "dtoverlay=disable-wifi" | sudo tee -a "$cfg_file" > /dev/null
+        else
+            echo "WiFi already disabled. Skipping overlay."
+        fi
+
+        # Immediately RF-kill WiFi in the current session
+        sudo rfkill block wifi || true
+
+    else
+        log_info "Leaving WiFi enabled..."
+
+        # Remove disable-wifi overlay if it exists
+        if grep -q "^dtoverlay=disable-wifi$" "$cfg_file"; then
+            sudo sed -i '/^dtoverlay=disable-wifi$/d' "$cfg_file"
+            echo "Removed disable-wifi overlay."
+        fi
+
+        # Try to unblock WiFi
+        log_info "Attempting to un-block WiFi (rfkill)..."
+        sudo rfkill unblock wifi || true
+        sudo rfkill unblock all || true
+
+        # Try to bring up wlan0
+        if sudo ip link set wlan0 up 2>/tmp/wifi_err.log; then
+            log_success "WiFi interface wlan0 enabled successfully."
+        else
+            log_info "WiFi interface could not be brought up immediately (likely requires reboot)."
+            log_info "RF-kill output:"
+            rfkill list
+            log_info "ip link error:"
+            cat /tmp/wifi_err.log
+            echo "WiFi should function correctly after reboot."
+        fi
+    fi
+
+    # UART-related overlays (always applied)
+    local overlays=("uart0" "uart2" "uart3" "uart5" "disable-bt")
     for overlay in "${overlays[@]}"; do
         if ! grep -q "^dtoverlay=${overlay}$" "$cfg_file"; then
             echo "dtoverlay=${overlay}" | sudo tee -a "$cfg_file" > /dev/null
@@ -67,8 +115,10 @@ configure_system() {
             echo "dtoverlay=${overlay} already set. Skipping."
         fi
     done
+
     log_info "Adding user '$USER_NAME' to the 'tty' group..."
     sudo usermod -aG tty "$USER_NAME"
+
     log_info "Disabling ModemManager to prevent conflicts..."
     if systemctl list-units --full -all | grep -q 'ModemManager.service'; then
         sudo systemctl disable --now ModemManager.service
@@ -76,6 +126,7 @@ configure_system() {
         echo "ModemManager.service not found. Skipping disable."
     fi
 }
+
 
 ## Package Installation
 install_system_packages() {
