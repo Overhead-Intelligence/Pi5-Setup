@@ -198,8 +198,9 @@ setup_mavlink_router() {
 DebugLogLevel = debug
 TcpServerPort = 5760
 [UartEndpoint flightcontroller]
-# For CM4, change ttyS1 to ttyAMA2
-Device = /dev/ttyAMA0
+# If using a USB connection to the flight controller use ACM0
+# If using a UART connection to the flight controller use AMA0
+Device = /dev/ttyACM0
 Baud = 115200
 [UdpEndpoint doodle]
 Mode = Server
