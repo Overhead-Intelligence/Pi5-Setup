@@ -1,25 +1,39 @@
 #!/bin/bash
 #
-# Refactored Raspberry Pi 5 Setup Script (v17 - Final)
-#
-# Key Improvements:
-# - Adds the 'isc-dhcp-client' package to the installation list, as it is
-#   not installed by default on this OS, which resolves the final service error.
+# Refactored Raspberry Pi 5 Setup Script (v18 - Robust Permissions)
 #
 
 # --- Script Configuration ---
 readonly USER_NAME="${SUDO_USER:-$(whoami)}"
 readonly USER_HOME=$(getent passwd "$USER_NAME" | cut -d: -f6)
 
+# --- Error Handling Trap ---
+error_handler() {
+    local line_no=$1
+    local exit_code=$2
+    echo -e "\n❌ [ERROR] Script failed at line ${line_no} with exit code ${exit_code}."
+    echo "Check the logs above to see which command caused the failure."
+    exit "${exit_code}"
+}
+# Attach the error handler to the ERR signal
+trap 'error_handler ${LINENO} $?' ERR
+
 # --- Main Script Logic ---
 main() {
     set -euo pipefail
+
     if [[ $EUID -eq 0 ]]; then
         echo "❌ This script should not be run as root. Use 'bash setup.sh' without sudo."
+        echo "It will automatically prompt for sudo password when system changes are needed."
         exit 1
     fi
 
-    log_info "Starting setup for user '$USER_NAME' on Raspberry Pi 5..."
+    log_info "Starting setup for user '${USER_NAME}' on Raspberry Pi 5..."
+    
+    # Prompt for sudo password upfront to avoid stalling later
+    sudo -v
+    # Keep sudo alive while the script runs
+    while true; do sudo -n true; sleep 60; kill -0 "$$" || exit; done 2>/dev/null &
 
     configure_system
     install_system_packages
@@ -62,38 +76,27 @@ configure_system() {
 
     log_info "Configuring /boot/firmware/config.txt..."
 
-    # --- Ask whether to disable WiFi ---
     read -rp "DO YOU WANT TO DISABLE ONBOARD WIFI? (y/N): " disable_wifi_choice
-    disable_wifi_choice=${disable_wifi_choice,,}  # lowercase
+    disable_wifi_choice=${disable_wifi_choice,,}
 
     if [[ "$disable_wifi_choice" == "y" ]]; then
         log_info "Disabling onboard WiFi..."
-
-        # Add disable-wifi overlay
         if ! grep -q "^dtoverlay=disable-wifi$" "$cfg_file"; then
             echo "dtoverlay=disable-wifi" | sudo tee -a "$cfg_file" > /dev/null
         else
             echo "WiFi already disabled. Skipping overlay."
         fi
-
-        # Immediately RF-kill WiFi in the current session
         sudo rfkill block wifi || true
-
     else
         log_info "Leaving WiFi enabled..."
-
-        # Remove disable-wifi overlay if it exists
         if grep -q "^dtoverlay=disable-wifi$" "$cfg_file"; then
             sudo sed -i '/^dtoverlay=disable-wifi$/d' "$cfg_file"
             echo "Removed disable-wifi overlay."
         fi
-
-        # Try to unblock WiFi
         log_info "Attempting to un-block WiFi (rfkill)..."
         sudo rfkill unblock wifi || true
         sudo rfkill unblock all || true
 
-        # Try to bring up wlan0
         if sudo ip link set wlan0 up 2>/tmp/wifi_err.log; then
             log_success "WiFi interface wlan0 enabled successfully."
         else
@@ -106,7 +109,7 @@ configure_system() {
         fi
     fi
 
-    # UART-related overlays (always applied)
+    # UART-related overlays
     local overlays=("uart0" "uart2" "uart3" "uart5" "disable-bt")
     for overlay in "${overlays[@]}"; do
         if ! grep -q "^dtoverlay=${overlay}$" "$cfg_file"; then
@@ -116,7 +119,7 @@ configure_system() {
         fi
     done
 
-    log_info "Adding user '$USER_NAME' to the 'tty' group..."
+    log_info "Adding user '${USER_NAME}' to the 'tty' group..."
     sudo usermod -aG tty "$USER_NAME"
 
     log_info "Disabling ModemManager to prevent conflicts..."
@@ -127,12 +130,9 @@ configure_system() {
     fi
 }
 
-
 ## Package Installation
 install_system_packages() {
     log_info "Installing all required APT packages..."
-    # --- THIS IS THE FIX ---
-    # Add 'isc-dhcp-client' to ensure the dhclient executable is available.
     local apt_packages=(
         git meson ninja-build pkg-config gcc g++
         python3-pip python3-venv
@@ -152,16 +152,20 @@ install_system_packages() {
 install_python_packages() {
     log_info "Creating and installing Python packages into a virtual environment..."
     local venv_dir="${USER_HOME}/python_venvs/mavlink_tools"
+    
     if [ ! -d "$venv_dir" ]; then
         mkdir -p "${USER_HOME}/python_venvs"
-        sudo -u "$USER_NAME" python3 -m venv "$venv_dir"
+        # Run natively as the user, no sudo
+        python3 -m venv "$venv_dir"
         log_info "Created virtual environment at '$venv_dir'"
     else
         log_info "Virtual environment already exists. Skipping creation."
     fi
+    
     log_info "Installing pymavlink and pyserial into the venv..."
-    sudo -u "$USER_NAME" "${venv_dir}/bin/python3" -m pip install --upgrade pip
-    sudo -u "$USER_NAME" "${venv_dir}/bin/python3" -m pip install pymavlink pyserial
+    # Run natively as the user, no sudo
+    "${venv_dir}/bin/python3" -m pip install --upgrade pip
+    "${venv_dir}/bin/python3" -m pip install pymavlink pyserial
 }
 
 ## Mavlink Router Setup
@@ -178,14 +182,16 @@ setup_mavlink_router() {
     fi
 
     log_info "Cloning and building Mavlink-router..."
-    sudo -u "$USER_NAME" git clone https://github.com/intel/mavlink-router.git "$install_dir"
+    # Run natively as user
+    git clone https://github.com/intel/mavlink-router.git "$install_dir"
     cd "$install_dir"
-    sudo -u "$USER_NAME" git submodule update --init --recursive
+    git submodule update --init --recursive
 
     log_info "Configuring Meson build..."
     meson setup build . -Dsystemdsystemunitdir=/usr/lib/systemd/system
 
     ninja -C build
+    # Only install requires root
     sudo ninja -C build install
     sudo ldconfig
 
@@ -328,17 +334,22 @@ setup_rtsp_streamer() {
     local app_dir="${USER_HOME}/gst-rtsp-server"
     local venv_dir="/opt/rtsp-venv"
     log_info "Setting up RTSP streamer..."
+    
     if [ ! -d "$venv_dir" ]; then
         log_info "Creating Python virtual environment in '$venv_dir' for the RTSP service..."
         sudo python3 -m venv "$venv_dir" --system-site-packages
     fi
-    sudo -u "$USER_NAME" mkdir -p "$app_dir"
+    
+    # Run natively as user
+    mkdir -p "$app_dir"
     log_info "Writing Python RTSP script to '$app_dir/stream.py'..."
-    cat << 'EOF' | sudo -u "$USER_NAME" tee "${app_dir}/stream.py" > /dev/null
+    
+    cat << 'EOF' > "${app_dir}/stream.py"
 #!/usr/bin/env python3
 # ... (Your full RTSP python script here) ...
 EOF
     chmod +x "${app_dir}/stream.py"
+    
     log_info "Creating systemd service for RTSP streamer..."
     cat << EOF | sudo tee /etc/systemd/system/rtsp-stream.service > /dev/null
 [Unit]
@@ -373,7 +384,6 @@ EOF
     fi
 
     log_info "Creating delayed DHCP service for usb0..."
-    # The path to dhclient is corrected to /usr/sbin/dhclient
     cat <<'EOF' | sudo tee /etc/systemd/system/dhclient-usb0-delayed.service > /dev/null
 [Unit]
 Description=Delayed DHCP client for usb0 (RNDIS)
@@ -390,9 +400,9 @@ WantedBy=multi-user.target
 EOF
 
     log_info "Sending AT command to configure modem for RNDIS mode..."
-    echo -e "AT+QCFG=\"usbnet\",1\r" | sudo tee /dev/ttyUSB2 > /dev/null
+    echo -e "AT+QCFG=\"usbnet\",1\r" | sudo tee /dev/ttyUSB2 > /dev/null || true
     sleep 1
-    echo -e "AT\r" | sudo tee /dev/ttyUSB2 > /dev/null
+    echo -e "AT\r" | sudo tee /dev/ttyUSB2 > /dev/null || true
 }
 
 ## ZeroTier Installation
