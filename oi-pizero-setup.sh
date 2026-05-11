@@ -25,11 +25,24 @@ PROGRAMS=(
     "g++"
     "systemd"
     "python3-pip"
+    "python3-venv"
     "cmake"
     "libsystemd-dev"
     "libimobiledevice-utils"
     "ipheth-utils"
     "usbmuxd"
+    # USB camera -> RTSP streaming
+    "python3-gi"
+    "python3-gi-cairo"
+    "gir1.2-gst-rtsp-server-1.0"
+    "gstreamer1.0-tools"
+    "gstreamer1.0-plugins-base"
+    "gstreamer1.0-plugins-good"
+    "gstreamer1.0-plugins-bad"
+    "gstreamer1.0-plugins-ugly"
+    "gstreamer1.0-libav"
+    "gstreamer1.0-rtsp"
+    "v4l-utils"
 )
 
 echo "Installing Mavlink-Router dependencies..."
@@ -221,14 +234,65 @@ RetryTimeout = 5
 EOF"
 fi
 
-echo "Adding droneman user to tty group"
-sudo usermod -aG tty droneman
+echo "Adding droneman user to tty and video groups"
+sudo usermod -aG tty,video droneman
 
+# --- USB camera -> RTSP streamer setup ---
+echo "Setting up USB camera RTSP streamer..."
+APP_DIR="${USER_DIR}/gst-rtsp-server"
+VENV_DIR="/opt/rtsp-venv"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creating Python venv at $VENV_DIR (system-site-packages for python3-gi)..."
+    sudo python3 -m venv "$VENV_DIR" --system-site-packages
+fi
+
+sudo -u droneman mkdir -p "$APP_DIR"
+echo "Installing stream.py to $APP_DIR/stream.py..."
+if [ -f "${SCRIPT_DIR}/stream.py" ]; then
+    sudo -u droneman cp "${SCRIPT_DIR}/stream.py" "${APP_DIR}/stream.py"
+else
+    sudo -u droneman curl -fsSL \
+        https://raw.githubusercontent.com/Overhead-Intelligence/oi-pi-setup-scripts/main/stream.py \
+        -o "${APP_DIR}/stream.py"
+fi
+sudo -u droneman chmod +x "${APP_DIR}/stream.py"
+
+# Pi Zero 2W defaults: MJPEG input + 640x480@30 keeps software x264enc < 1 core
+# and avoids USB 2.0 bandwidth issues that hit raw YUYV at higher resolutions.
+sudo tee /etc/systemd/system/rtsp-stream.service > /dev/null <<EOF
+[Unit]
+Description=USB Camera RTSP Streamer
+After=network.target
+
+[Service]
+Environment=RTSP_DEVICE=/dev/video0
+Environment=RTSP_WIDTH=640
+Environment=RTSP_HEIGHT=480
+Environment=RTSP_FRAMERATE=30
+Environment=RTSP_BITRATE=1000
+Environment=RTSP_PORT=8554
+Environment=RTSP_PATH=/cam
+Environment=RTSP_INPUT_FORMAT=mjpeg
+ExecStart=${VENV_DIR}/bin/python3 ${APP_DIR}/stream.py
+WorkingDirectory=${APP_DIR}
+Restart=always
+RestartSec=3
+User=droneman
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable rtsp-stream.service
+
+echo "Installing Tailscale..."
 curl -fsSL https://tailscale.com/install.sh | sudo bash
-log_success "Tailscale installed! Run 'sudo tailscale up' to authenticate."
+echo "Tailscale installed! Run 'sudo tailscale up' to authenticate."
 
-
-log_info "Installing ZeroTier..."
+echo "Installing ZeroTier..."
 curl -s https://install.zerotier.com | sudo bash
 
 # Reboot to apply changes

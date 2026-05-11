@@ -119,8 +119,8 @@ configure_system() {
         fi
     done
 
-    log_info "Adding user '${USER_NAME}' to the 'tty' group..."
-    sudo usermod -aG tty "$USER_NAME"
+    log_info "Adding user '${USER_NAME}' to the 'tty' and 'video' groups..."
+    sudo usermod -aG tty,video "$USER_NAME"
 
     log_info "Disabling ModemManager to prevent conflicts..."
     if systemctl list-units --full -all | grep -q 'ModemManager.service'; then
@@ -333,33 +333,47 @@ EOF
 setup_rtsp_streamer() {
     local app_dir="${USER_HOME}/gst-rtsp-server"
     local venv_dir="/opt/rtsp-venv"
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     log_info "Setting up RTSP streamer..."
-    
+
     if [ ! -d "$venv_dir" ]; then
         log_info "Creating Python virtual environment in '$venv_dir' for the RTSP service..."
         sudo python3 -m venv "$venv_dir" --system-site-packages
     fi
-    
-    # Run natively as user
+
     mkdir -p "$app_dir"
-    log_info "Writing Python RTSP script to '$app_dir/stream.py'..."
-    
-    cat << 'EOF' > "${app_dir}/stream.py"
-#!/usr/bin/env python3
-# ... (Your full RTSP python script here) ...
-EOF
+    log_info "Installing stream.py to '$app_dir/stream.py'..."
+    if [ -f "${script_dir}/stream.py" ]; then
+        cp "${script_dir}/stream.py" "${app_dir}/stream.py"
+    else
+        curl -fsSL \
+            https://raw.githubusercontent.com/Overhead-Intelligence/oi-pi-setup-scripts/main/stream.py \
+            -o "${app_dir}/stream.py"
+    fi
     chmod +x "${app_dir}/stream.py"
-    
+
     log_info "Creating systemd service for RTSP streamer..."
     cat << EOF | sudo tee /etc/systemd/system/rtsp-stream.service > /dev/null
 [Unit]
-Description=RTSP Streamer Service
+Description=USB Camera RTSP Streamer
 After=network.target
+
 [Service]
+Environment=RTSP_DEVICE=/dev/video0
+Environment=RTSP_WIDTH=1280
+Environment=RTSP_HEIGHT=720
+Environment=RTSP_FRAMERATE=30
+Environment=RTSP_BITRATE=2500
+Environment=RTSP_PORT=8554
+Environment=RTSP_PATH=/cam
+Environment=RTSP_INPUT_FORMAT=raw
 ExecStart=${venv_dir}/bin/python3 ${app_dir}/stream.py
 WorkingDirectory=${app_dir}
 Restart=always
+RestartSec=3
 User=${USER_NAME}
+
 [Install]
 WantedBy=multi-user.target
 EOF
